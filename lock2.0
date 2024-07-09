@@ -1,16 +1,17 @@
-getgenv().PredictionVelocity = 15
+getgenv().PredictionVelocity = 16
+getgenv().AimbotSmoothness = 0.87
+
 local aimbotEnabled = false
 local target = nil
 local stickyAimEnabled = false
 local stickyAimActive = false
 local lockedPart = nil
 local lockedPlayer = nil
-local lockTarget = "Head" -- Can be set to "Head" or "HumanoidRootPart"
+local lockTarget = "HumanoidRootPart"
 local gui = Instance.new("ScreenGui")
 gui.Parent = game.CoreGui
 
 local rightMouseButtonDown = false
-
 game:GetService("UserInputService").InputBegan:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.X then
         aimbotEnabled = not aimbotEnabled
@@ -54,18 +55,36 @@ function findNearestPlayer()
     local nearestPart = nil
     local nearestDistance = math.huge
     local cursorPos = game:GetService("UserInputService"):GetMouseLocation()
+    local playersNotBehindWalls = {}
+    local playersBehindWalls = {}
+
     for _, player in pairs(game.Players:GetPlayers()) do
-        if player.Character and player.Character:FindFirstChild("Humanoid") and player.Character:FindFirstChild("Head") and player ~= game.Players.LocalPlayer then
-            local bodyPart = player.Character:FindFirstChild("HumanoidRootPart") or player.Character:FindFirstChild("UpperTorso")
+        if player.Character and player.Character:FindFirstChild("Humanoid") and player.Character:FindFirstChild(lockTarget) and player ~= game.Players.LocalPlayer then
+            local bodyPart = player.Character:FindFirstChild(lockTarget)
             local screenPos, onScreen = game.Workspace.CurrentCamera:WorldToViewportPoint(bodyPart.Position)
             local distance = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(cursorPos.X, cursorPos.Y)).Magnitude
 
-            if onScreen and distance < nearestDistance and distance < 50 and not isPlayerBehindWall(player) then
-                nearestDistance = distance
-                nearestPlayer = player
-                nearestPart = player.Character:FindFirstChild("Head")
+            if onScreen and distance < 50 then
+                if isPlayerBehindWall(player) then
+                    table.insert(playersBehindWalls, {player = player, distance = distance})
+                else
+                    table.insert(playersNotBehindWalls, {player = player, distance = distance})
+                end
             end
         end
+    end
+
+    table.sort(playersNotBehindWalls, function(a, b) return a.distance < b.distance end)
+    table.sort(playersBehindWalls, function(a, b) return a.distance < b.distance end)
+
+    if #playersNotBehindWalls > 0 then
+        nearestPlayer = playersNotBehindWalls[1].player
+    elseif #playersBehindWalls > 0 then
+        nearestPlayer = playersBehindWalls[1].player
+    end
+
+    if nearestPlayer then
+        nearestPart = nearestPlayer.Character:FindFirstChild(lockTarget)
     end
 
     return nearestPlayer, nearestPart
@@ -83,7 +102,6 @@ end
 game:GetService("UserInputService").InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         rightMouseButtonDown = true
-        -- Lock onto a target when right mouse button is pressed
         if aimbotEnabled then
             local newTarget, newPart = findNearestPlayer()
             if newTarget and newPart then
@@ -97,22 +115,23 @@ end)
 game:GetService("UserInputService").InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         rightMouseButtonDown = false
-        -- Reset lock when right mouse button is released
         lockedPlayer = nil
         lockedPart = nil
     end
 end)
 
 local lastLockedPlayer = nil
-
 game:GetService("RunService").RenderStepped:Connect(function()
     if aimbotEnabled and rightMouseButtonDown and lockedPlayer and lockedPart then
-        if lockedPlayer.Character and lockedPlayer.Character:FindFirstChild("Head") then
+        if lockedPlayer.Character and lockedPlayer.Character:FindFirstChild(lockTarget) then
             local part = lockedPart
             local predictedPosition = predictPosition(part)
-            game.Workspace.CurrentCamera.CFrame = CFrame.new(game.Workspace.CurrentCamera.CFrame.Position, predictedPosition)
             
-            -- Display notification for locked player
+            local direction = (predictedPosition - game.Workspace.CurrentCamera.CFrame.Position).Unit
+            local targetCFrame = CFrame.new(game.Workspace.CurrentCamera.CFrame.Position, game.Workspace.CurrentCamera.CFrame.Position + direction)
+            
+            game.Workspace.CurrentCamera.CFrame = game.Workspace.CurrentCamera.CFrame:Lerp(targetCFrame, getgenv().AimbotSmoothness)
+            
             if lockedPlayer ~= lastLockedPlayer then
                 game:GetService("StarterGui"):SetCore("SendNotification", {
                     Title = "femboyhub",
@@ -122,12 +141,10 @@ game:GetService("RunService").RenderStepped:Connect(function()
                 lastLockedPlayer = lockedPlayer
             end
         else
-            -- If the locked player's character is no longer valid, reset the lock
             lockedPlayer = nil
             lockedPart = nil
         end
     else
-        -- Reset lock when aimbot is disabled or right mouse button is released
         lockedPlayer = nil
         lockedPart = nil
         lastLockedPlayer = nil
