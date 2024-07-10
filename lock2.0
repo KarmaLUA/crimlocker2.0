@@ -82,8 +82,9 @@ end
 
 -- Keybind to toggle ESP (Press 'N' to toggle)
 game:GetService("UserInputService").InputBegan:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.E then
+    if input.KeyCode == Enum.KeyCode.N then
         ToggleESP()
+        print("ESP Toggled: " .. (ESP.Enabled and "On" or "Off"))
     end
 end)
 
