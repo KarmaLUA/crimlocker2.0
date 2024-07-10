@@ -80,11 +80,11 @@ local function ToggleESP()
     end
 end
 
--- Keybind to toggle ESP (Press 'E' to toggle)
+-- Keybind to toggle ESP (Press 'N' to toggle)
 game:GetService("UserInputService").InputBegan:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.E then
         ToggleESP()
     end
 end)
 
-print("Criminality Name ESP loaded. Press 'E' to toggle.")
+print("Criminality Name ESP loaded. Press 'N' to toggle.")
