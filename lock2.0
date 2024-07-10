@@ -1,152 +1,90 @@
-getgenv().PredictionVelocity = 16
-getgenv().AimbotSmoothness = 0.87
+-- Criminality Name ESP
+-- Optimized for performance and compatibility with Solara Executor
 
-local aimbotEnabled = false
-local target = nil
-local stickyAimEnabled = false
-local stickyAimActive = false
-local lockedPart = nil
-local lockedPlayer = nil
-local lockTarget = "HumanoidRootPart"
-local gui = Instance.new("ScreenGui")
-gui.Parent = game.CoreGui
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
 
-local rightMouseButtonDown = false
+-- ESP Configuration
+local ESP = {
+    Enabled = true,
+    TeamCheck = false, -- Set to true if you want to exclude teammates
+    BoxColor = Color3.fromRGB(255, 0, 0),
+    TextColor = Color3.fromRGB(255, 255, 255),
+    TextSize = 14,
+    TextFont = Enum.Font.SourceSansBold,
+    MaxDistance = 1000, -- Maximum distance to render ESP
+}
+
+-- Create ESP objects
+local function CreateESP(player)
+    local esp = Drawing.new("Text")
+    esp.Visible = false
+    esp.Center = true
+    esp.Outline = true
+    esp.Font = ESP.TextFont
+    esp.Size = ESP.TextSize
+    esp.Color = ESP.TextColor
+    esp.OutlineColor = ESP.BoxColor
+    return esp
+end
+
+-- Update ESP
+local function UpdateESP()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
+                continue
+            end
+
+            local humanoidRootPart = player.Character.HumanoidRootPart
+            local vector, onScreen = Camera:WorldToViewportPoint(humanoidRootPart.Position)
+            local distance = (Camera.CFrame.Position - humanoidRootPart.Position).Magnitude
+
+            if not player.espObject then
+                player.espObject = CreateESP(player)
+            end
+
+            if onScreen and distance <= ESP.MaxDistance and ESP.Enabled then
+                player.espObject.Position = Vector2.new(vector.X, vector.Y)
+                player.espObject.Text = string.format("%s [%d]", player.Name, math.floor(distance))
+                player.espObject.Visible = true
+            else
+                player.espObject.Visible = false
+            end
+        end
+    end
+end
+
+-- Clean up ESP objects when players leave
+Players.PlayerRemoving:Connect(function(player)
+    if player.espObject then
+        player.espObject:Remove()
+        player.espObject = nil
+    end
+end)
+
+-- Main loop
+RunService:BindToRenderStep("ESP", Enum.RenderPriority.Camera.Value, UpdateESP)
+
+-- Toggle ESP function
+local function ToggleESP()
+    ESP.Enabled = not ESP.Enabled
+    if not ESP.Enabled then
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player.espObject then
+                player.espObject.Visible = false
+            end
+        end
+    end
+end
+
+-- Keybind to toggle ESP (Press 'E' to toggle)
 game:GetService("UserInputService").InputBegan:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.X then
-        aimbotEnabled = not aimbotEnabled
-        if aimbotEnabled then
-            game:GetService("StarterGui"):SetCore("SendNotification", {
-                Title = "femboyhub",
-                Text = "Aimbot Enabled",
-                Duration = 5
-            })
-            print("Aimbot: ON")
-        else
-            game:GetService("StarterGui"):SetCore("SendNotification", {
-                Title = "femboyhub",
-                Text = "Aimbot Disabled",
-                Duration = 5
-            })
-            print("Aimbot: OFF")
-            stickyAimEnabled = false
-            stickyAimActive = false
-            lockedPart = nil
-            lockedPlayer = nil
-        end
+    if input.KeyCode == Enum.KeyCode.E then
+        ToggleESP()
     end
 end)
 
-function isPlayerBehindWall(player)
-    local character = player.Character
-    if not character then return true end
-    
-    local head = character:FindFirstChild("Head")
-    if not head then return true end
-    
-    local ray = Ray.new(game.Workspace.CurrentCamera.CFrame.Position, (head.Position - game.Workspace.CurrentCamera.CFrame.Position).unit * 1000)
-    local part, position = game.Workspace:FindPartOnRayWithIgnoreList(ray, {game.Workspace.CurrentCamera, game.Players.LocalPlayer.Character})
-    
-    return part and part:IsDescendantOf(character) == false
-end
-
-function findNearestPlayer()
-    local nearestPlayer = nil
-    local nearestPart = nil
-    local nearestDistance = math.huge
-    local cursorPos = game:GetService("UserInputService"):GetMouseLocation()
-    local playersNotBehindWalls = {}
-    local playersBehindWalls = {}
-
-    for _, player in pairs(game.Players:GetPlayers()) do
-        if player.Character and player.Character:FindFirstChild("Humanoid") and player.Character:FindFirstChild(lockTarget) and player ~= game.Players.LocalPlayer then
-            local bodyPart = player.Character:FindFirstChild(lockTarget)
-            local screenPos, onScreen = game.Workspace.CurrentCamera:WorldToViewportPoint(bodyPart.Position)
-            local distance = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(cursorPos.X, cursorPos.Y)).Magnitude
-
-            if onScreen and distance < 50 then
-                if isPlayerBehindWall(player) then
-                    table.insert(playersBehindWalls, {player = player, distance = distance})
-                else
-                    table.insert(playersNotBehindWalls, {player = player, distance = distance})
-                end
-            end
-        end
-    end
-
-    table.sort(playersNotBehindWalls, function(a, b) return a.distance < b.distance end)
-    table.sort(playersBehindWalls, function(a, b) return a.distance < b.distance end)
-
-    if #playersNotBehindWalls > 0 then
-        nearestPlayer = playersNotBehindWalls[1].player
-    elseif #playersBehindWalls > 0 then
-        nearestPlayer = playersBehindWalls[1].player
-    end
-
-    if nearestPlayer then
-        nearestPart = nearestPlayer.Character:FindFirstChild(lockTarget)
-    end
-
-    return nearestPlayer, nearestPart
-end
-
-function predictPosition(part)
-    if getgenv().PredictMovement and part and part.Parent and part.Parent:FindFirstChild("Humanoid") then
-        local humanoid = part.Parent:FindFirstChild("Humanoid")
-        local velocity = humanoid.MoveDirection * humanoid.WalkSpeed
-        return part.Position + (velocity * getgenv().PredictionVelocity / 100)
-    end
-    return part.Position
-end
-
-game:GetService("UserInputService").InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton2 then
-        rightMouseButtonDown = true
-        if aimbotEnabled then
-            local newTarget, newPart = findNearestPlayer()
-            if newTarget and newPart then
-                lockedPlayer = newTarget
-                lockedPart = newPart
-            end
-        end
-    end
-end)
-
-game:GetService("UserInputService").InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton2 then
-        rightMouseButtonDown = false
-        lockedPlayer = nil
-        lockedPart = nil
-    end
-end)
-
-local lastLockedPlayer = nil
-game:GetService("RunService").RenderStepped:Connect(function()
-    if aimbotEnabled and rightMouseButtonDown and lockedPlayer and lockedPart then
-        if lockedPlayer.Character and lockedPlayer.Character:FindFirstChild(lockTarget) then
-            local part = lockedPart
-            local predictedPosition = predictPosition(part)
-            
-            local direction = (predictedPosition - game.Workspace.CurrentCamera.CFrame.Position).Unit
-            local targetCFrame = CFrame.new(game.Workspace.CurrentCamera.CFrame.Position, game.Workspace.CurrentCamera.CFrame.Position + direction)
-            
-            game.Workspace.CurrentCamera.CFrame = game.Workspace.CurrentCamera.CFrame:Lerp(targetCFrame, getgenv().AimbotSmoothness)
-            
-            if lockedPlayer ~= lastLockedPlayer then
-                game:GetService("StarterGui"):SetCore("SendNotification", {
-                    Title = "femboyhub",
-                    Text = "Locked on: " .. lockedPlayer.Name,
-                    Duration = 3
-                })
-                lastLockedPlayer = lockedPlayer
-            end
-        else
-            lockedPlayer = nil
-            lockedPart = nil
-        end
-    else
-        lockedPlayer = nil
-        lockedPart = nil
-        lastLockedPlayer = nil
-    end
-end)
+print("Criminality Name ESP loaded. Press 'E' to toggle.")
