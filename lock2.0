@@ -1,91 +1,235 @@
--- Criminality Name ESP
--- Optimized for performance and compatibility with Solara Executor
+getgenv().AimPart = "Head"
+getgenv().AimlockToggleKey = "X"
+getgenv().AimRadius = 300
+getgenv().FirstPerson = true
+getgenv().TeamCheck = false
+getgenv().PredictMovement = true
+getgenv().PredictionVelocity = 13
+getgenv().AimbotEnabled = true
+getgenv().CursorProximity = 600
+getgenv().WallCheck = true
+getgenv().VisibleCheck = true
+getgenv().FOV = 100 -- Default FOV value
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
+local Players, Uis, RService, SGui = game:GetService"Players", game:GetService"UserInputService", game:GetService"RunService", game:GetService"StarterGui";
+local Client, Mouse, Camera, CF, RNew, Vec3, Vec2 = Players.LocalPlayer, Players.LocalPlayer:GetMouse(), workspace.CurrentCamera, CFrame.new, Ray.new, Vector3.new, Vector2.new;
+local Aimlock, MousePressed, CanNotify = true, false, false;
+local AimlockTarget;
+getgenv().CiazwareUniversalAimbotLoaded = true
 
--- ESP Configuration
-local ESP = {
-    Enabled = true,
-    TeamCheck = false, -- Set to true if you want to exclude teammates
-    BoxColor = Color3.fromRGB(255, 0, 0),
-    TextColor = Color3.fromRGB(255, 255, 255),
-    TextSize = 14,
-    TextFont = Enum.Font.SourceSansBold,
-    MaxDistance = 1000, -- Maximum distance to render ESP
-}
+-- Create FOV Circle
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Visible = false
+FOVCircle.Filled = false
+FOVCircle.Transparency = 1
+FOVCircle.Thickness = 1
+FOVCircle.Color = Color3.fromRGB(255, 255, 255)
 
--- Create ESP objects
-local function CreateESP(player)
-    local esp = Drawing.new("Text")
-    esp.Visible = false
-    esp.Center = true
-    esp.Outline = true
-    esp.Font = ESP.TextFont
-    esp.Size = ESP.TextSize
-    esp.Color = ESP.TextColor
-    esp.OutlineColor = ESP.BoxColor
-    return esp
+getgenv().SeparateNotify = function(title, text, icon, time) 
+    SGui:SetCore("SendNotification",{
+        Title = title;
+        Text = text;
+        Duration = time;
+    })
 end
 
--- Update ESP
-local function UpdateESP()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
-                continue
-            end
+getgenv().Notify = function(title, text, icon, time)
+    if CanNotify == true then 
+        if not time or not type(time) == "number" then time = 3 end
+        SGui:SetCore("SendNotification",{
+            Title = "Karma Hub: " .. title;
+            Text = text;
+            Duration = time;
+        }) 
+    end
+end
+getgenv().WorldToViewportPoint = function(P)
+    return Camera:WorldToViewportPoint(P)
+end
 
-            local humanoidRootPart = player.Character.HumanoidRootPart
-            local vector, onScreen = Camera:WorldToViewportPoint(humanoidRootPart.Position)
-            local distance = (Camera.CFrame.Position - humanoidRootPart.Position).Magnitude
+getgenv().WorldToScreenPoint = function(P)
+    return Camera.WorldToScreenPoint(Camera, P)
+end
 
-            if not player.espObject then
-                player.espObject = CreateESP(player)
-            end
+getgenv().GetObscuringObjects = function(T)
+    if T and T:FindFirstChild(getgenv().AimPart) and Client and Client.Character:FindFirstChild("Head") then 
+        local RayPos = workspace:FindPartOnRay(RNew(
+            T[getgenv().AimPart].Position, Client.Character.Head.Position)
+        )
+        if RayPos then return RayPos:IsDescendantOf(T) end
+    end
+end
 
-            if onScreen and distance <= ESP.MaxDistance and ESP.Enabled then
-                player.espObject.Position = Vector2.new(vector.X, vector.Y)
-                player.espObject.Text = string.format("%s [%d]", player.Name, math.floor(distance))
-                player.espObject.Visible = true
-            else
-                player.espObject.Visible = false
+getgenv().WallCheck = true -- Check if target is behind a wall
+getgenv().VisibleCheck = true -- Prioritize visible targets
+
+getgenv().GetNearestTarget = function()
+    local players = Players:GetPlayers()
+    local nearestPlayer = nil
+    local shortestDistance = math.huge
+    local mousePos = Vec2(Mouse.X, Mouse.Y)
+    local visibleTargets = {}
+    local behindWallTargets = {}
+
+    for _, player in ipairs(players) do
+        if player ~= Client and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local screenPos, onScreen = Camera:WorldToScreenPoint(player.Character.HumanoidRootPart.Position)
+            if onScreen then
+                local distanceToMouse = (Vec2(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                local distanceToCharacter = (player.Character.HumanoidRootPart.Position - Camera.CFrame.p).Magnitude
+                if distanceToMouse <= getgenv().CursorProximity and distanceToCharacter <= getgenv().AimRadius then
+                    if (getgenv().TeamCheck and player.Team ~= Client.Team) or (not getgenv().TeamCheck) then
+                        local isVisible = not getgenv().WallCheck or not GetObscuringObjects(player.Character)
+                        local targetInfo = {player = player, distance = distanceToMouse}
+                        if isVisible then
+                            table.insert(visibleTargets, targetInfo)
+                        else
+                            table.insert(behindWallTargets, targetInfo)
+                        end
+                    end
+                end
             end
         end
     end
+
+    local function sortByDistance(a, b)
+        return a.distance < b.distance
+    end
+
+    table.sort(visibleTargets, sortByDistance)
+    table.sort(behindWallTargets, sortByDistance)
+
+    if #visibleTargets > 0 and getgenv().VisibleCheck then
+        return visibleTargets[1].player
+    elseif #behindWallTargets > 0 then
+        return behindWallTargets[1].player
+    end
+
+    return nil
+end
+-- Update FOV Circle
+local function UpdateFOVCircle()
+    if FOVCircle then
+        FOVCircle.Visible = getgenv().AimbotEnabled
+        FOVCircle.Radius = getgenv().FOV
+        FOVCircle.Position = Vec2(Mouse.X, Mouse.Y + 36)
+    end
 end
 
--- Clean up ESP objects when players leave
-Players.PlayerRemoving:Connect(function(player)
-    if player.espObject then
-        player.espObject:Remove()
-        player.espObject = nil
+-- Toggle Wall Check
+Uis.InputBegan:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.RightAlt then
+        getgenv().WallCheck = not getgenv().WallCheck
+        Notify("Wall Check", getgenv().WallCheck and "Enabled" or "Disabled", "", 3)
     end
 end)
-
--- Main loop
-RunService:BindToRenderStep("ESP", Enum.RenderPriority.Camera.Value, UpdateESP)
-
--- Toggle ESP function
-local function ToggleESP()
-    ESP.Enabled = not ESP.Enabled
-    if not ESP.Enabled then
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player.espObject then
-                player.espObject.Visible = false
+Uis.InputEnded:Connect(function(Key)
+    if not (Uis:GetFocusedTextBox()) then 
+        if Key.UserInputType == Enum.UserInputType.MouseButton2 then 
+            if AimlockTarget ~= nil then AimlockTarget = nil end
+            if MousePressed ~= false then 
+                MousePressed = false 
             end
         end
     end
+end)
+
+local lastHeartbeat = tick()
+
+local function heartbeat()
+    lastHeartbeat = tick()
 end
 
--- Keybind to toggle ESP (Press 'N' to toggle)
-game:GetService("UserInputService").InputBegan:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.N then
-        ToggleESP()
-        print("ESP Toggled: " .. (ESP.Enabled and "On" or "Off"))
+spawn(function()
+    while wait(1) do
+        if tick() - lastHeartbeat > 5 then
+            print("Aimbot script may have stopped working. Attempting to restart...")
+            -- Add logic to restart the script here
+        end
     end
 end)
 
-print("Criminality Name ESP loaded. Press 'N' to toggle.")
+spawn(function()
+    while wait(0.1) do
+        if MousePressed and not AimlockTarget then
+            AimlockTarget = GetNearestTarget()
+        end
+    end
+end)
+RService.RenderStepped:Connect(function()
+    heartbeat()
+    if not getgenv().AimbotEnabled then return end
+
+    UpdateFOVCircle()
+if getgenv().FirstPerson == true then 
+        if 0 == 0 then 
+            CanNotify = true 
+        else 
+            CanNotify = false
+        end
+    end
+
+    pcall(function()
+        if Aimlock == true and MousePressed == true then 
+            if AimlockTarget and AimlockTarget.Character and AimlockTarget.Character:FindFirstChild(getgenv().AimPart) then 
+                if getgenv().FirstPerson == true then
+                    if CanNotify == true then
+                        if getgenv().PredictMovement == true then 
+                            Camera.CFrame = CF(Camera.CFrame.p, AimlockTarget.Character[getgenv().AimPart].Position + AimlockTarget.Character[getgenv().AimPart].Velocity/PredictionVelocity)
+                        elseif getgenv().PredictMovement == false then 
+                            Camera.CFrame = CF(Camera.CFrame.p, AimlockTarget.Character[getgenv().AimPart].Position)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end)
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Parent = game.CoreGui
+
+local Frame = Instance.new("Frame")
+Frame.Size = UDim2.new(0, 200, 0, 50)
+Frame.Position = UDim2.new(0.5, -100, 0, 10)
+Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+Frame.BorderSizePixel = 0
+Frame.Parent = ScreenGui
+
+local Slider = Instance.new("TextButton")
+Slider.Size = UDim2.new(0.9, 0, 0, 20)
+Slider.Position = UDim2.new(0.05, 0, 0.5, -10)
+Slider.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+Slider.BorderSizePixel = 0
+Slider.Text = "FOV: " .. getgenv().FOV
+Slider.TextColor3 = Color3.fromRGB(255, 255, 255)
+Slider.Parent = Frame
+
+local SliderFill = Instance.new("Frame")
+SliderFill.Size = UDim2.new(getgenv().FOV / 800, 0, 1, 0)
+SliderFill.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
+SliderFill.BorderSizePixel = 0
+SliderFill.Parent = Slider
+
+local isDragging = false
+
+Slider.MouseButton1Down:Connect(function()
+    isDragging = true
+end)
+
+Uis.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        isDragging = false
+    end
+end)
+
+Uis.InputChanged:Connect(function(input)
+    if isDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local mousePos = Uis:GetMouseLocation()
+        local relativePos = mousePos.X - Slider.AbsolutePosition.X
+        local percentage = math.clamp(relativePos / Slider.AbsoluteSize.X, 0, 1)
+        local newFOV = math.floor(percentage * 800)
+        getgenv().FOV = newFOV
+        SliderFill.Size = UDim2.new(percentage, 0, 1, 0)
+        Slider.Text = "FOV: " .. newFOV
+    end
+end)
